@@ -27,6 +27,10 @@
 	<string>Voixe</string>
 	<key>CFBundleName</key>
 	<string>Voixe</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 	<key>SUFeedURL</key>
 	<string>https://voixe-updates.example.com/appcast.xml</string>
 	<key>SUPublicEDKey</key>

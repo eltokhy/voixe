@@ -139,8 +139,9 @@ private struct WelcomeStep: View {
         status: .idle,
         meter: .init(averagePower: 0, peakPower: 0)
       )
-      .scaleEffect(2.4)
-      .frame(height: 140)
+      .scaleEffect(1.6)
+      .frame(height: 100)
+      .padding(.bottom, 4)
 
       VStack(spacing: 8) {
         Text("Welcome to Voixe")

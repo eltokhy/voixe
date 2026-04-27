@@ -1,0 +1,51 @@
+# Build outputs
+build/
+updates/
+DerivedData/
+
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+buildServer.json
+ExportOptions.plist
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/xcuserdata/
+VoixeCore/.build/
+VoixeCore/.swiftpm/
+
+# Transitive package source caches (if any get pulled in locally)
+FluidAudio/
+
+# Local stash dirs
+.tmp/
+bin/
+
+# Node / Bun
+node_modules/
+.npm-cache/
+bun.lockb
+package-lock.json
+
+# Editor / IDE state
+.vscode/
+.idea/
+.DS_Store
+
+# Local-only Claude metadata
+.claude/
+
+# Distribution artifacts (signed builds, DMGs, archives) — never commit
+*.app
+*.xcarchive
+*.dmg
+*.pkg
+
+# Sparkle private signing material (NEVER commit)
+sparkle-private-key
+*.p12
+
+# Local refine model downloads (users fetch at runtime)
+refine-models/

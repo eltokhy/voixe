@@ -1,0 +1,196 @@
+# GitHub Actions workflow template for releasing a Hex fork.
+#
+# To use:
+#   1. Copy this file to .github/workflows/release.yml in your fork.
+#   2. Set the secrets listed in docs/RELEASING-FORKS.md (Step 7).
+#   3. Push a tag matching v*.*.* — the workflow archives, signs, notarizes,
+#      builds + signs a DMG, generates an appcast entry, uploads to S3, and
+#      creates a GitHub Release.
+#
+# This is a template, not a finished workflow. You'll need to:
+#   - Decide between S3 hosting (default below) or GitHub Releases-only hosting
+#     (delete the AWS upload step and host appcast.xml on GitHub Pages instead).
+#   - Adjust the appcast.xml generation to merge with your existing history
+#     instead of overwriting (the script below replaces the file each time).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.7.4)'
+        required: true
+
+env:
+  S3_BUCKET: hex-fork-updates
+  APPCAST_URL: https://updates.example.com/hex/appcast.xml
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing $VERSION"
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain $(security list-keychains -d user | tr -d '"')
+
+      - name: Bump version in Info.plist
+        run: |
+          plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Hex/Info.plist
+          NEW_BUILD=$(($(plutil -extract CFBundleVersion raw Hex/Info.plist) + 1))
+          plutil -replace CFBundleVersion -string "$NEW_BUILD" Hex/Info.plist
+          echo "build=$NEW_BUILD" >> $GITHUB_ENV
+
+      - name: Archive
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: |
+          xcodebuild archive \
+            -scheme Hex \
+            -configuration Release \
+            -archivePath build/Hex.xcarchive \
+            -skipMacroValidation \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM"
+
+      - name: Export signed app
+        run: |
+          mkdir -p build
+          cat > build/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>developer-id</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath build/Hex.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist build/ExportOptions.plist
+
+      - name: Notarize app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: |
+          ditto -c -k --keepParent build/export/Hex.app build/Hex.app.zip
+          xcrun notarytool submit build/Hex.app.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$DEVELOPMENT_TEAM" \
+            --wait
+          xcrun stapler staple build/export/Hex.app
+
+      - name: Build DMG
+        run: |
+          hdiutil create \
+            -volname "Hex" \
+            -srcfolder build/export/Hex.app \
+            -ov \
+            -format UDZO \
+            "build/Hex-${{ steps.version.outputs.version }}.dmg"
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: |
+          xcrun notarytool submit "build/Hex-${{ steps.version.outputs.version }}.dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$DEVELOPMENT_TEAM" \
+            --wait
+          xcrun stapler staple "build/Hex-${{ steps.version.outputs.version }}.dmg"
+
+      - name: Sign DMG with Sparkle EdDSA
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/Library/Application\ Support/Sparkle/Generated\ Keys
+          echo "$SPARKLE_PRIVATE_KEY" | base64 --decode > ~/Library/Application\ Support/Sparkle/Generated\ Keys/.private_key
+          # Sparkle's sign_update tool reads the private key from the keychain or
+          # from the standard ed25519 location. Adjust based on how you stored it.
+          brew install --cask sparkle
+          SIGNATURE=$(/Applications/Sparkle.app/Contents/MacOS/sign_update "build/Hex-${{ steps.version.outputs.version }}.dmg")
+          echo "sparkle_signature=$SIGNATURE" >> $GITHUB_ENV
+
+      - name: Generate appcast.xml
+        run: |
+          DMG_SIZE=$(stat -f%z "build/Hex-${{ steps.version.outputs.version }}.dmg")
+          PUB_DATE=$(LC_TIME=en_US.UTF-8 date -R)
+          cat > build/appcast.xml <<EOF
+          <?xml version="1.0" standalone="yes"?>
+          <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+            <channel>
+              <title>Hex</title>
+              <item>
+                <title>Hex ${{ steps.version.outputs.version }}</title>
+                <pubDate>$PUB_DATE</pubDate>
+                <sparkle:version>${{ env.build }}</sparkle:version>
+                <sparkle:shortVersionString>${{ steps.version.outputs.version }}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+                <enclosure
+                  url="https://${{ env.S3_BUCKET }}.s3.amazonaws.com/Hex-${{ steps.version.outputs.version }}.dmg"
+                  ${{ env.sparkle_signature }}
+                  length="$DMG_SIZE"
+                  type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          EOF
+
+      - name: Upload to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          aws s3 cp "build/Hex-${{ steps.version.outputs.version }}.dmg" "s3://${{ env.S3_BUCKET }}/Hex-${{ steps.version.outputs.version }}.dmg" --acl public-read
+          aws s3 cp "build/Hex-${{ steps.version.outputs.version }}.dmg" "s3://${{ env.S3_BUCKET }}/hex-latest.dmg" --acl public-read
+          aws s3 cp "build/appcast.xml" "s3://${{ env.S3_BUCKET }}/appcast.xml" --acl public-read --content-type application/xml
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            "build/Hex-${{ steps.version.outputs.version }}.dmg" \
+            --title "Hex ${{ steps.version.outputs.version }}" \
+            --generate-notes

@@ -335,6 +335,10 @@ struct AppView: View {
     )) {
       OnboardingView(store: store)
     }
+    .preferredColorScheme(.dark)
+    .tint(EnginecyPalette.pink)
+    .scrollContentBackground(.hidden)
+    .background(EnginecyPalette.canvas)
     .enableInjection()
   }
 }

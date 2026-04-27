@@ -25,7 +25,7 @@ struct CuratedRow: View {
 			HStack(alignment: .center, spacing: 12) {
 				// Radio selector
 				Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-					.foregroundStyle(isSelected ? .blue : .secondary)
+					.foregroundStyle(isSelected ? EnginecyPalette.pink : .secondary)
 
 				// Title and ratings
 				VStack(alignment: .leading, spacing: 6) {
@@ -95,11 +95,11 @@ struct CuratedRow: View {
 			.padding(10)
 			.background(
 				RoundedRectangle(cornerRadius: 10)
-					.fill(isSelected ? Color.blue.opacity(0.08) : Color(NSColor.controlBackgroundColor))
+					.fill(isSelected ? EnginecyPalette.pink.opacity(0.10) : EnginecyPalette.surface)
 			)
 			.overlay(
 				RoundedRectangle(cornerRadius: 10)
-					.stroke(isSelected ? Color.blue.opacity(0.35) : Color.gray.opacity(0.18))
+					.stroke(isSelected ? EnginecyPalette.pink.opacity(0.55) : EnginecyPalette.stroke, lineWidth: isSelected ? 1.5 : 1)
 			)
 			.contentShape(.rect)
 		}

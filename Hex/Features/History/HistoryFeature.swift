@@ -223,17 +223,20 @@ struct TranscriptView: View {
 	var body: some View {
 		VStack(alignment: .leading, spacing: 0) {
 			Text(transcript.text)
-				.font(.body)
+				.font(.title3)
+				.foregroundStyle(.white)
+				.lineSpacing(2)
 				.lineLimit(nil)
 				.fixedSize(horizontal: false, vertical: true)
-				.padding(.trailing, 40) // Space for buttons
-				.padding(12)
+				.padding(.trailing, 40)
+				.padding(16)
 
-			Divider()
+			Rectangle()
+				.fill(EnginecyPalette.stroke)
+				.frame(height: 1)
 
 			HStack {
 				HStack(spacing: 6) {
-					// App icon and name
 					if let bundleID = transcript.sourceAppBundleID,
 					   let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
 						Image(nsImage: NSWorkspace.shared.icon(forFile: appURL.path))
@@ -242,22 +245,22 @@ struct TranscriptView: View {
 						if let appName = transcript.sourceAppName {
 							Text(appName)
 						}
-						Text("•")
+						Text("·")
 					}
-					
+
 					Image(systemName: "clock")
 					Text(transcript.timestamp.relativeFormatted())
-					Text("•")
+					Text("·")
 					Text(transcript.timestamp.formatted(date: .omitted, time: .shortened))
-					Text("•")
+					Text("·")
 					Text(String(format: "%.1fs", transcript.duration))
 				}
-				.font(.subheadline)
-				.foregroundStyle(.secondary)
+				.font(.caption)
+				.foregroundStyle(.white.opacity(0.45))
 
 				Spacer()
 
-				HStack(spacing: 10) {
+				HStack(spacing: 14) {
 					Button {
 						onCopy()
 						showCopyAnimation()
@@ -270,39 +273,30 @@ struct TranscriptView: View {
 						}
 					}
 					.buttonStyle(.plain)
-					.foregroundStyle(showCopied ? .green : .secondary)
+					.foregroundStyle(showCopied ? EnginecyPalette.mint : .white.opacity(0.5))
 					.help("Copy to clipboard")
 
 					Button(action: onPlay) {
 						Image(systemName: isPlaying ? "stop.fill" : "play.fill")
 					}
 					.buttonStyle(.plain)
-					.foregroundStyle(isPlaying ? .blue : .secondary)
+					.foregroundStyle(isPlaying ? EnginecyPalette.pink : .white.opacity(0.5))
 					.help(isPlaying ? "Stop playback" : "Play audio")
 
 					Button(action: onDelete) {
 						Image(systemName: "trash.fill")
 					}
 					.buttonStyle(.plain)
-					.foregroundStyle(.secondary)
+					.foregroundStyle(.white.opacity(0.4))
 					.help("Delete transcript")
 				}
 				.font(.subheadline)
 			}
-			.frame(height: 20)
-			.padding(.horizontal, 12)
-			.padding(.vertical, 6)
+			.padding(.horizontal, 16)
+			.padding(.vertical, 10)
 		}
-		.background(
-			RoundedRectangle(cornerRadius: 8)
-				.fill(Color(.windowBackgroundColor).opacity(0.5))
-				.overlay(
-					RoundedRectangle(cornerRadius: 8)
-						.strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
-				)
-		)
+		.brandCard(cornerRadius: 14)
 		.onDisappear {
-			// Clean up any running task when view disappears
 			copyTask?.cancel()
 		}
 	}

@@ -50,3 +50,51 @@ enum EnginecyPalette {
     )
   }
 }
+
+// MARK: - Reusable styles
+
+/// Primary CTA — pink → blue capsule with a soft pink shadow halo.
+struct BrandPillButtonStyle: ButtonStyle {
+  var size: Size = .regular
+
+  enum Size { case small, regular }
+
+  func makeBody(configuration: Configuration) -> some View {
+    let horizontal: CGFloat = size == .small ? 14 : 22
+    let vertical: CGFloat = size == .small ? 7 : 11
+    return configuration.label
+      .font((size == .small ? Font.caption : Font.callout).weight(.semibold))
+      .foregroundStyle(.white)
+      .padding(.horizontal, horizontal)
+      .padding(.vertical, vertical)
+      .background(Capsule().fill(EnginecyPalette.accent))
+      .shadow(color: EnginecyPalette.pink.opacity(configuration.isPressed ? 0.2 : 0.4),
+              radius: configuration.isPressed ? 4 : 12, y: 4)
+      .scaleEffect(configuration.isPressed ? 0.97 : 1)
+      .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+  }
+}
+
+/// Secondary action — outlined capsule on the surface color.
+struct BrandSecondaryButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.callout)
+      .foregroundStyle(.white.opacity(configuration.isPressed ? 0.6 : 0.8))
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
+      .background(Capsule().fill(EnginecyPalette.surface))
+      .overlay(Capsule().stroke(EnginecyPalette.stroke, lineWidth: 1))
+      .scaleEffect(configuration.isPressed ? 0.97 : 1)
+      .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+  }
+}
+
+extension View {
+  /// Brand card: rounded-16 dark surface with a subtle stroke.
+  func brandCard(cornerRadius: CGFloat = 14) -> some View {
+    self
+      .background(RoundedRectangle(cornerRadius: cornerRadius).fill(EnginecyPalette.surface))
+      .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(EnginecyPalette.stroke, lineWidth: 1))
+  }
+}

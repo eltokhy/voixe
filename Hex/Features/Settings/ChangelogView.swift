@@ -28,7 +28,7 @@ struct ChangelogView: View {
                 Button("Close") {
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandPillButtonStyle())
                 .padding(.top, 20)
             }
             .padding()

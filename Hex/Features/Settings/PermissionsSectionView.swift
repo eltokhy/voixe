@@ -36,25 +36,21 @@ struct PermissionsSectionView: View {
 		if store.hotkeyPermissionState.inputMonitoring != .granted {
 			VStack(alignment: .leading, spacing: 6) {
 				Label {
-					Text("Input Monitoring is required so Hex can listen for your hotkey.")
+					Text("Input Monitoring is required so Voixe can listen for your hotkey.")
 						.font(.callout)
 						.foregroundStyle(.primary)
 				} icon: {
 					Image(systemName: "exclamationmark.triangle.fill")
-						.foregroundStyle(.yellow)
+						.foregroundStyle(EnginecyPalette.pink)
 				}
 
-				Button {
+				Button("Open Input Monitoring Settings") {
 					store.send(.requestInputMonitoring)
-				} label: {
-					Text("Open Input Monitoring Settings")
 				}
-				.buttonStyle(.borderedProminent)
-				.controlSize(.small)
+				.buttonStyle(BrandPillButtonStyle(size: .small))
 			}
 			.padding(12)
-			.background(Color(nsColor: .controlBackgroundColor))
-			.clipShape(RoundedRectangle(cornerRadius: 10))
+			.brandCard()
 		}
 
 		} header: {
@@ -87,21 +83,17 @@ struct PermissionsSectionView: View {
 			switch status {
 			case .granted:
 				Image(systemName: "checkmark.circle.fill")
-					.foregroundStyle(.green)
+					.foregroundStyle(EnginecyPalette.mint)
 					.font(.body)
 			case .denied, .notDetermined:
-				Button("Grant") {
-					action()
-				}
-				.buttonStyle(.bordered)
-				.controlSize(.small)
+				Button("Grant") { action() }
+					.buttonStyle(BrandPillButtonStyle(size: .small))
 			}
 		}
 		.padding(.horizontal, 12)
 		.padding(.vertical, 8)
 		.frame(maxWidth: .infinity)
-		.background(Color(nsColor: .controlBackgroundColor))
-		.clipShape(RoundedRectangle(cornerRadius: 8))
+		.brandCard(cornerRadius: 10)
 	}
 
 	private var combinedAccessibilityStatus: PermissionStatus {

@@ -69,13 +69,13 @@ struct AboutView: View {
         .scaledToFit()
         .frame(width: 96, height: 96)
         .shadow(color: EnginecyPalette.pink.opacity(0.4), radius: 24)
-      VStack(spacing: 4) {
+      VStack(spacing: 6) {
+        Text("Made by Enginecy")
+          .eyebrow()
         Text("Voixe")
-          .font(.largeTitle.weight(.semibold))
+          .font(.system(size: 44, weight: .semibold))
+          .tracking(-1)
           .foregroundStyle(.white)
-        Text("by Enginecy")
-          .font(.subheadline)
-          .foregroundStyle(.white.opacity(0.5))
       }
       Text("Voice → text on macOS. On-device. Free.")
         .font(.callout)

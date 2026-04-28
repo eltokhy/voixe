@@ -143,9 +143,12 @@ private struct WelcomeStep: View {
       .frame(height: 100)
       .padding(.bottom, 4)
 
-      VStack(spacing: 8) {
+      VStack(spacing: 10) {
+        Text("Voice → Text")
+          .eyebrow()
         Text("Welcome to Voixe")
-          .font(.title2.weight(.semibold))
+          .font(.title.weight(.semibold))
+          .tracking(-0.5)
           .foregroundStyle(.white)
         Text("Hold a hotkey, speak, and your transcript pastes wherever you're typing — fully on-device.")
           .font(.subheadline)

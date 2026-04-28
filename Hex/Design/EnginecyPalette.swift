@@ -108,10 +108,42 @@ struct BrandSecondaryButtonStyle: ButtonStyle {
 }
 
 extension View {
-  /// Brand card: rounded surface with a subtle stroke.
+  /// Brand card: rounded surface with a subtle stroke + 1px inner highlight that
+  /// suggests refracted light along the top edge — what the taste guides call
+  /// "machined hardware" depth instead of a flat fill.
   func brandCard(cornerRadius: CGFloat = 14) -> some View {
     self
       .background(RoundedRectangle(cornerRadius: cornerRadius).fill(EnginecyPalette.surface))
-      .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(EnginecyPalette.stroke, lineWidth: 1))
+      .overlay(
+        RoundedRectangle(cornerRadius: cornerRadius)
+          .stroke(EnginecyPalette.stroke, lineWidth: 1)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: cornerRadius)
+          .stroke(
+            LinearGradient(
+              colors: [Color.white.opacity(0.18), Color.clear],
+              startPoint: .top,
+              endPoint: .bottom
+            ),
+            lineWidth: 1
+          )
+          .blendMode(.plusLighter)
+          .allowsHitTesting(false)
+      )
+  }
+
+  /// Eyebrow tag — small uppercase tracked label that precedes a section title.
+  /// Premium-design language calls for these to break visual monotony in
+  /// otherwise text-heavy panels. Use sparingly, for one or two places per view.
+  func eyebrow() -> some View {
+    self
+      .font(.system(size: 10, weight: .semibold))
+      .tracking(2)
+      .textCase(.uppercase)
+      .foregroundStyle(.white.opacity(0.55))
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(Capsule().stroke(EnginecyPalette.stroke, lineWidth: 1))
   }
 }

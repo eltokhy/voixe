@@ -2,10 +2,20 @@
 //  VoixeIndicatorView.swift
 //  Voixe
 //
-//  The Enginecy mark, animated, pulsing to your voice.
-//  Replaces the old capsule-style status indicator with a circular orb that
-//  combines (1) the brand SVG, (2) two counter-rotating brand-gradient rings,
-//  and (3) an outer glow that intensifies with the audio meter.
+//  Procedural voice orb. The Voixe rays are drawn directly in SwiftUI Canvas
+//  on a per-frame TimelineView so each ray can:
+//    - rotate continuously around the centre,
+//    - breathe in/out on its own phase offset (organic motion, not strobe),
+//    - extend audio-reactively when recording (peak power → ray length),
+//    - colour-shift along the brand purple→blue gradient as the angle sweeps.
+//
+//  States:
+//    .hidden      → fully invisible
+//    .idle        → soft slow breathing (purple glow)
+//    .recording   → rays extend with the live audio meter (purple glow)
+//    .prewarming  → similar to idle but sligtly faster
+//    .transcribing→ faster rotation, energetic motion (blue glow)
+//    .refining    → mid-state, longer rays, mauve glow
 //
 
 import Inject
@@ -17,7 +27,7 @@ struct VoixeIndicatorView: View {
 
   enum Status: Equatable {
     case hidden
-    case idle           // hotkey held / armed but not yet recording
+    case idle
     case recording
     case transcribing
     case prewarming
@@ -27,10 +37,10 @@ struct VoixeIndicatorView: View {
   var status: Status
   var meter: Meter
 
-  // MARK: - Geometry
+  // MARK: - Layout
 
-  private let baseSize: CGFloat = 36
-  private let activeSize: CGFloat = 44
+  private let baseSize: CGFloat = 44
+  private let activeSize: CGFloat = 56
 
   private var size: CGFloat {
     switch status {
@@ -40,129 +50,157 @@ struct VoixeIndicatorView: View {
     }
   }
 
-  // MARK: - Audio-reactive scale (kept tight so the orb breathes, doesn't bounce)
+  // MARK: - Per-state behaviour
 
-  private var meterScale: CGFloat {
+  /// Rotation rate in turns per second (full revolutions / second).
+  private var rotationRate: Double {
     switch status {
-    case .recording:
-      return 1 + CGFloat(min(0.25, meter.averagePower * 0.6))
-    case .transcribing, .refining:
-      return 1.04
-    case .idle, .prewarming:
-      return 1
-    case .hidden:
-      return 0.8
+    case .hidden: return 0
+    case .idle, .prewarming: return 0.04
+    case .recording: return 0.12
+    case .transcribing: return 0.18
+    case .refining: return 0.10
     }
   }
 
-  // MARK: - Colors per status
-
+  /// Glow colour that surrounds the orb.
   private var glowColor: Color {
     switch status {
     case .hidden: return .clear
-    case .idle, .prewarming: return EnginecyPalette.blue.opacity(0.4)
-    case .recording: return EnginecyPalette.pink.opacity(0.6)
-    case .transcribing: return EnginecyPalette.blue.opacity(0.6)
-    case .refining: return EnginecyPalette.mauve.opacity(0.6)
+    case .idle, .prewarming: return EnginecyPalette.pink.opacity(0.45)
+    case .recording: return EnginecyPalette.pink.opacity(0.7)
+    case .transcribing: return EnginecyPalette.blue.opacity(0.65)
+    case .refining: return EnginecyPalette.mauve.opacity(0.65)
     }
   }
 
+  /// Glow radius — recording reacts to peak power for a "spike on speech" effect.
   private var glowRadius: CGFloat {
     switch status {
     case .hidden: return 0
-    case .idle, .prewarming: return 8
-    case .recording: return 8 + CGFloat(meter.peakPower * 24)
-    case .transcribing, .refining: return 14
+    case .idle, .prewarming: return 10
+    case .recording: return 12 + CGFloat(meter.peakPower * 30)
+    case .transcribing, .refining: return 18
     }
   }
 
-  // MARK: - Animations
+  /// Audio amplitude that drives ray length. Recording uses live mic; other
+  /// states use a synthetic gentle wave so the orb still feels alive.
+  private var amplitude: CGFloat {
+    switch status {
+    case .recording:
+      return CGFloat(min(1.0, meter.averagePower * 1.6))
+    case .refining, .transcribing:
+      return 0.35
+    case .idle, .prewarming:
+      return 0.18
+    case .hidden:
+      return 0
+    }
+  }
 
-  @State private var ringRotation: Double = 0
-  @State private var idleBreath: CGFloat = 1.0
+  private let rayCount: Int = 64
+
+  // MARK: - Body
 
   var body: some View {
-    ZStack {
-      // Glow halo
-      Circle()
-        .fill(glowColor)
-        .blur(radius: max(8, glowRadius))
-        .frame(width: size * 1.6, height: size * 1.6)
-        .opacity(status == .hidden ? 0 : 1)
+    TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: status == .hidden)) { context in
+      let elapsed = context.date.timeIntervalSinceReferenceDate
+      let canvasSize = size * 1.8 // give the glow + ray extension breathing room
 
-      // Outer rotating ring
-      ringStroke(width: 2, opacity: 0.85, scale: 1.18)
-        .rotationEffect(.degrees(ringRotation))
+      ZStack {
+        // Ambient halo
+        Circle()
+          .fill(glowColor)
+          .blur(radius: max(8, glowRadius))
+          .frame(width: canvasSize, height: canvasSize)
+          .opacity(status == .hidden ? 0 : 1)
 
-      // Inner counter-rotating ring
-      ringStroke(width: 1.5, opacity: 0.55, scale: 1.06)
-        .rotationEffect(.degrees(-ringRotation * 0.6))
-
-      // Brand mark
-      Image("VoixeMark")
-        .resizable()
-        .interpolation(.high)
-        .scaledToFit()
-        .frame(width: size * 0.78, height: size * 0.78)
-        .saturation(status == .hidden ? 0 : 1)
-        .opacity(status == .hidden ? 0 : 1)
-        .scaleEffect(meterScale * idleBreath)
-        .shadow(color: glowColor.opacity(0.5), radius: 6)
+        // Procedural ray field
+        Canvas { ctx, drawSize in
+          drawRays(into: ctx, size: drawSize, time: elapsed)
+        }
+        .frame(width: canvasSize, height: canvasSize)
+        .blendMode(.plusLighter) // additive — rays brighten the halo where they cross it
+      }
+      .frame(width: canvasSize, height: canvasSize)
+      .opacity(status == .hidden ? 0 : 1)
+      .scaleEffect(status == .hidden ? 0.6 : 1)
+      .animation(.spring(response: 0.45, dampingFraction: 0.7), value: status)
     }
-    .frame(width: size * 1.6, height: size * 1.6)
-    .opacity(status == .hidden ? 0 : 1)
-    .scaleEffect(status == .hidden ? 0.6 : 1)
-    .animation(.spring(response: 0.45, dampingFraction: 0.7), value: status)
-    .animation(.easeOut(duration: 0.2), value: meter)
-    .onAppear { startRingAnimation() }
-    .task(id: status) { await startBreathing() }
     .enableInjection()
   }
 
-  // MARK: - Subviews
+  // MARK: - Drawing
 
-  @ViewBuilder
-  private func ringStroke(width: CGFloat, opacity: Double, scale: CGFloat) -> some View {
-    Circle()
-      .strokeBorder(
-        EnginecyPalette.ring(angle: .degrees(0)),
-        lineWidth: width
+  private func drawRays(into ctx: GraphicsContext, size canvasSize: CGSize, time t: Double) {
+    let centre = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+    let radius = min(canvasSize.width, canvasSize.height) * 0.5
+
+    // Ring geometry
+    let innerR = radius * 0.30
+    let baseOuterR = radius * 0.50
+    let maxExtension = radius * 0.42
+
+    let baseAngle = t * rotationRate * .pi * 2
+
+    for i in 0..<rayCount {
+      let normalized = Double(i) / Double(rayCount)
+      let angle = baseAngle + normalized * .pi * 2
+
+      // Per-ray phase offset → independent breathing, not a synchronised strobe.
+      let phase = normalized * .pi * 2 * 3 // 3 wave cycles around the ring
+      let wave = (sin(t * 1.6 + phase) + 1) / 2 // 0...1
+      let lengthFactor = 0.35 + wave * 0.35 + Double(amplitude) * 0.6
+      let outerR = baseOuterR + maxExtension * CGFloat(min(1.0, lengthFactor))
+
+      let inner = CGPoint(
+        x: centre.x + CGFloat(cos(angle)) * innerR,
+        y: centre.y + CGFloat(sin(angle)) * innerR
       )
-      .opacity(opacity)
-      .frame(width: size * scale, height: size * scale)
-      .blendMode(.plusLighter)
-      .opacity(status == .hidden ? 0 : 1)
-  }
+      let outer = CGPoint(
+        x: centre.x + CGFloat(cos(angle)) * outerR,
+        y: centre.y + CGFloat(sin(angle)) * outerR
+      )
 
-  // MARK: - Animation drivers
+      // Colour position along the purple→blue gradient.
+      // Use the ray's vertical component so the gradient feels like a top-to-bottom
+      // wash that rotates with the ring.
+      let colourPosition = (sin(angle - .pi / 2) + 1) / 2 // 0 (top) → 1 (bottom)
+      let rayColor = mixColor(EnginecyPalette.pink, EnginecyPalette.blue, t: colourPosition)
 
-  private func startRingAnimation() {
-    withAnimation(.linear(duration: 9).repeatForever(autoreverses: false)) {
-      ringRotation = 360
+      // Ray opacity dips slightly with amplitude wave so the rim shimmers.
+      let opacity = 0.55 + wave * 0.35
+
+      var path = Path()
+      path.move(to: inner)
+      path.addLine(to: outer)
+      ctx.stroke(
+        path,
+        with: .color(rayColor.opacity(opacity)),
+        style: StrokeStyle(lineWidth: 2.0, lineCap: .round)
+      )
     }
   }
 
-  @MainActor
-  private func startBreathing() async {
-    guard status == .idle || status == .prewarming || status == .transcribing || status == .refining else {
-      idleBreath = 1
-      return
-    }
-    while !Task.isCancelled, status == .idle || status == .prewarming || status == .transcribing || status == .refining {
-      withAnimation(.easeInOut(duration: 1.6)) { idleBreath = 1.06 }
-      try? await Task.sleep(for: .seconds(1.6))
-      withAnimation(.easeInOut(duration: 1.6)) { idleBreath = 1.0 }
-      try? await Task.sleep(for: .seconds(1.6))
-    }
+  /// Linearly interpolate two SwiftUI Colors in sRGB space.
+  private func mixColor(_ a: Color, _ b: Color, t: Double) -> Color {
+    let aN = NSColor(a).usingColorSpace(.deviceRGB) ?? .black
+    let bN = NSColor(b).usingColorSpace(.deviceRGB) ?? .black
+    let clamped = max(0, min(1, t))
+    let r = aN.redComponent + (bN.redComponent - aN.redComponent) * clamped
+    let g = aN.greenComponent + (bN.greenComponent - aN.greenComponent) * clamped
+    let bl = aN.blueComponent + (bN.blueComponent - aN.blueComponent) * clamped
+    return Color(red: Double(r), green: Double(g), blue: Double(bl))
   }
 }
 
-#Preview("Voixe Indicator") {
-  VStack(spacing: 32) {
-    HStack(spacing: 32) {
+#Preview("Voixe Orb states") {
+  VStack(spacing: 36) {
+    HStack(spacing: 36) {
       Group {
         VoixeIndicatorView(status: .idle, meter: .init(averagePower: 0, peakPower: 0))
-        VoixeIndicatorView(status: .recording, meter: .init(averagePower: 0.35, peakPower: 0.55))
+        VoixeIndicatorView(status: .recording, meter: .init(averagePower: 0.5, peakPower: 0.7))
         VoixeIndicatorView(status: .transcribing, meter: .init(averagePower: 0, peakPower: 0))
         VoixeIndicatorView(status: .refining, meter: .init(averagePower: 0, peakPower: 0))
       }

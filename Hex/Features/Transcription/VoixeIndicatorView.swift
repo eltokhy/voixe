@@ -115,10 +115,12 @@ struct VoixeIndicatorView: View {
       let t = context.date.timeIntervalSinceReferenceDate
       let canvasSize = size * 1.8
       let scale = reactiveScale(time: t)
-      // State-constant rotation rate keeps angle accumulation simple — a small
-      // visual "warp" is hidden under the spring transitions when the user
-      // changes status.
-      let rotation = Angle.degrees(t * rotationRate * 360)
+      // Wrap the rotation angle into 0...360. Without modulo, `t × rate × 360`
+      // accumulates into the billions and SwiftUI's parent spring animation
+      // ends up interpolating from 0 to that huge value on first appearance,
+      // producing a rapid wind-up spin when the orb first appears.
+      let cycle = (t * rotationRate).truncatingRemainder(dividingBy: 1.0)
+      let rotation = Angle.degrees(cycle * 360)
 
       ZStack {
         // Faded halo — frame hugs the orb tightly (1.15× the logo) so the
@@ -130,12 +132,17 @@ struct VoixeIndicatorView: View {
           .opacity(status == .hidden ? 0 : 1)
 
         // The Voixe logo, rotating + scaling.
+        // The rotation modifier is wrapped in `.transaction` with animation
+        // nil'd so it always snaps to the per-frame target instead of
+        // inheriting the parent's spring (which would interpolate the rotation
+        // and produce an unwanted wind-up at first appearance / status flips).
         Image("VoixeMark")
           .resizable()
           .interpolation(.high)
           .scaledToFit()
           .frame(width: size, height: size)
           .rotationEffect(rotation)
+          .transaction { tx in tx.animation = nil }
           .scaleEffect(scale)
           .shadow(color: glowColor.opacity(0.7), radius: 6, y: 2)
       }

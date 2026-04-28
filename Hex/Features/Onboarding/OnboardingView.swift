@@ -139,9 +139,9 @@ private struct WelcomeStep: View {
         status: .idle,
         meter: .init(averagePower: 0, peakPower: 0)
       )
-      .scaleEffect(1.6)
-      .frame(height: 100)
-      .padding(.bottom, 4)
+      .scaleEffect(3.2)
+      .frame(height: 110)
+      .padding(.bottom, 8)
 
       VStack(spacing: 10) {
         Text("Voice → Text")
@@ -310,7 +310,7 @@ private struct RefineStep: View {
         status: refineEnabled ? .refining : .idle,
         meter: .init(averagePower: 0, peakPower: 0)
       )
-      .scaleEffect(1.6)
+      .scaleEffect(2.2)
       .frame(height: 80)
 
       Text("Refine cleans up your dictation")

@@ -39,8 +39,14 @@ struct VoixeIndicatorView: View {
 
   // MARK: - Layout
 
-  private let baseSize: CGFloat = 44
-  private let activeSize: CGFloat = 56
+  // Sized for the menu-bar / overlay recording indicator (small, unobtrusive).
+  // For hero usage (Onboarding welcome / Refine intro) the call site applies a
+  // .scaleEffect(...) multiplier — see OnboardingView.swift.
+  //
+  // `size` is the inner ring diameter. Rays extend dramatically OUTSIDE this ring
+  // (up to ~2× the diameter when speaking loudly), so the canvas needs headroom.
+  private let baseSize: CGFloat = 24
+  private let activeSize: CGFloat = 30
 
   private var size: CGFloat {
     switch status {
@@ -86,29 +92,40 @@ struct VoixeIndicatorView: View {
     }
   }
 
-  /// Audio amplitude that drives ray length. Recording uses live mic; other
-  /// states use a synthetic gentle wave so the orb still feels alive.
+  /// Audio amplitude that drives ray length. Recording uses BOTH the average
+  /// (smoother body) and the peak (transient flicker) so loud speech produces
+  /// dramatic ray extension. Other states use a synthetic gentle wave so the
+  /// orb still feels alive.
   private var amplitude: CGFloat {
     switch status {
     case .recording:
-      return CGFloat(min(1.0, meter.averagePower * 1.6))
+      let avg = CGFloat(meter.averagePower)
+      let peak = CGFloat(meter.peakPower)
+      // Combined drive, biased toward peak so each spoken syllable visibly
+      // pushes rays outward. Scaled up to 2.4× so quiet voice still produces
+      // a clear visual change.
+      return min(1.0, (avg * 1.4 + peak * 1.0) * 1.2)
     case .refining, .transcribing:
-      return 0.35
+      return 0.4
     case .idle, .prewarming:
-      return 0.18
+      return 0.20
     case .hidden:
       return 0
     }
   }
 
-  private let rayCount: Int = 64
+  // Fewer rays = thicker gaps between each "pillar" so the burst reads as
+  // distinct radial lines instead of a smooth disk at small render sizes.
+  private let rayCount: Int = 36
 
   // MARK: - Body
 
   var body: some View {
     TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: status == .hidden)) { context in
       let elapsed = context.date.timeIntervalSinceReferenceDate
-      let canvasSize = size * 1.8 // give the glow + ray extension breathing room
+      // Canvas is 2.4× the inner ring so rays have room to extend dramatically
+      // outward when speaking. Without this headroom audio reactivity is invisible.
+      let canvasSize = size * 2.4
 
       ZStack {
         // Ambient halo — tighter footprint than the canvas (1.05× the orb itself,
@@ -141,22 +158,31 @@ struct VoixeIndicatorView: View {
     let centre = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
     let radius = min(canvasSize.width, canvasSize.height) * 0.5
 
-    // Ring geometry
-    let innerR = radius * 0.30
-    let baseOuterR = radius * 0.50
-    let maxExtension = radius * 0.42
+    // Ring geometry — kept compact with a wide ray-extension range so audio
+    // amplitude has somewhere to push the pillars OUTWARD.
+    let innerR = radius * 0.20      // tight inner hole
+    let baseOuterR = radius * 0.34  // ray base — short by default
+    let maxExtension = radius * 0.62 // up to ~3× the inner radius when speaking
 
     let baseAngle = t * rotationRate * .pi * 2
+
+    // Stroke thickness scales with size so pillars remain visible at small
+    // sizes without becoming chunky on hero scales.
+    let lineWidth: CGFloat = max(2.0, radius * 0.06)
 
     for i in 0..<rayCount {
       let normalized = Double(i) / Double(rayCount)
       let angle = baseAngle + normalized * .pi * 2
 
       // Per-ray phase offset → independent breathing, not a synchronised strobe.
-      let phase = normalized * .pi * 2 * 3 // 3 wave cycles around the ring
-      let wave = (sin(t * 1.6 + phase) + 1) / 2 // 0...1
-      let lengthFactor = 0.35 + wave * 0.35 + Double(amplitude) * 0.6
-      let outerR = baseOuterR + maxExtension * CGFloat(min(1.0, lengthFactor))
+      let phase = normalized * .pi * 2 * 2 // 2 wave cycles around the ring
+      let wave = (sin(t * 2.0 + phase) + 1) / 2 // 0...1, faster than before
+
+      // Length factor combines a slow ambient wave (15% range) with audio
+      // amplitude (80% range). When speaking, audio absolutely dominates the
+      // ray length; when silent, only the gentle wave keeps the orb breathing.
+      let lengthFactor = 0.20 + wave * 0.15 + Double(amplitude) * 0.8
+      let outerR = baseOuterR + maxExtension * CGFloat(min(1.2, lengthFactor))
 
       let inner = CGPoint(
         x: centre.x + CGFloat(cos(angle)) * innerR,
@@ -173,8 +199,9 @@ struct VoixeIndicatorView: View {
       let colourPosition = (sin(angle - .pi / 2) + 1) / 2 // 0 (top) → 1 (bottom)
       let rayColor = mixColor(EnginecyPalette.pink, EnginecyPalette.blue, t: colourPosition)
 
-      // Ray opacity dips slightly with amplitude wave so the rim shimmers.
-      let opacity = 0.55 + wave * 0.35
+      // Opacity tracks ray extension so longer rays appear brighter — visually
+      // reinforces the audio-reactive growth.
+      let opacity = 0.65 + min(0.35, Double(amplitude) * 0.4 + wave * 0.15)
 
       var path = Path()
       path.move(to: inner)
@@ -182,7 +209,7 @@ struct VoixeIndicatorView: View {
       ctx.stroke(
         path,
         with: .color(rayColor.opacity(opacity)),
-        style: StrokeStyle(lineWidth: 2.0, lineCap: .round)
+        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
       )
     }
   }

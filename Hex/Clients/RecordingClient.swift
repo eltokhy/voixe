@@ -1042,6 +1042,16 @@ actor RecordingClientLive {
   }
 
   func startRecording() async {
+    // Defensive guard: never attempt AVAudio* APIs if mic auth status isn't
+    // .authorized. Caller (TranscriptionFeature.handleStartRecording) already
+    // pre-flights this, but a second check here means any future caller — or
+    // a TCC database race — can't drag the app into a CGEventTap deadlock.
+    let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    guard micStatus == .authorized else {
+      recordingLogger.error("startRecording aborted: mic permission status=\(micStatus.rawValue, privacy: .public). Open Settings → Privacy → Microphone.")
+      return
+    }
+
     // Check and fix device-level mute before recording
     ensureInputDeviceUnmuted()
 

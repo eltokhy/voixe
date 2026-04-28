@@ -5,6 +5,7 @@
 //  Created by Kit Langton on 1/24/25.
 //
 
+import AVFoundation
 import ComposableArchitecture
 import CoreGraphics
 import Foundation
@@ -286,6 +287,30 @@ private extension TranscriptionFeature {
 
 private extension TranscriptionFeature {
   func handleStartRecording(_ state: inout State) -> Effect<Action> {
+    // CRITICAL pre-flight: never trigger an AVAudioEngine call when the mic
+    // permission isn't already granted. macOS responds by trying to surface
+    // its TCC consent dialog, but the dialog can't be shown from inside the
+    // CGEventTap callback that sent us here — the main runloop is busy
+    // dispatching the hotkey event and the TCC alert needs that same runloop
+    // to draw itself, producing a hard system-wide input deadlock that only
+    // a power-button reboot recovers from.
+    //
+    // Status check is synchronous and DOES NOT trigger the dialog. Status
+    // check only consults the TCC database. The dialog only fires when an
+    // app calls a media API. By bailing here we ensure that path is never
+    // taken without user-granted permission.
+    let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    guard micStatus == .authorized else {
+      transcriptionFeatureLogger.notice("Hotkey ignored: microphone permission not granted (status=\(micStatus.rawValue)). Open Settings → Permissions.")
+      return .run { _ in
+        soundEffect.play(.cancel)
+        // Bring the app forward so the user sees the Permissions section.
+        await MainActor.run {
+          NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+      }
+    }
+
     guard state.modelBootstrapState.isModelReady else {
       return .merge(
         .send(.modelMissing),

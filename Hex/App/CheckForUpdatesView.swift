@@ -14,8 +14,14 @@ final class CheckForUpdatesViewModel {
 
 	static let shared = CheckForUpdatesViewModel()
 
+	// startingUpdater is false until Voixe has a real Sparkle feed URL +
+	// signed/notarized release. While SUFeedURL is the placeholder, booting the
+	// Sparkle updater would immediately try to launch its XPC helper and fail
+	// with "The updater failed to start" on every launch. The Check-for-Updates
+	// button stays disabled (canCheckForUpdates = false) until startUpdater is
+	// called, so the user never sees a misleading error.
 	let controller = SPUStandardUpdaterController(
-		startingUpdater: true,
+		startingUpdater: false,
 		updaterDelegate: nil,
 		userDriverDelegate: nil
 	)

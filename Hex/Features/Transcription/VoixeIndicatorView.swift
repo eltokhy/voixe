@@ -99,7 +99,7 @@ struct VoixeIndicatorView: View {
         .rotationEffect(.degrees(-ringRotation * 0.6))
 
       // Brand mark
-      Image("EnginecyMark")
+      Image("VoixeMark")
         .resizable()
         .interpolation(.high)
         .scaledToFit()

@@ -3,20 +3,36 @@
 //  Voixe
 //
 //  Centralised brand colors + gradients for Voixe.
-//  Sourced from the Enginecy icon SVG's master radial gradient.
+//  Two-color brand: purple (#7701e5) → blue (#0f76ef).
+//  (Voixe's own palette, distinct from Enginecy's full radial spectrum.)
 //
 
 import SwiftUI
 
 enum EnginecyPalette {
-  // MARK: - Brand stops (Enginecy radial gradient, in order)
+  // MARK: - Brand colors (Voixe two-color gradient)
 
-  static let orange   = Color(red: 0xF2 / 255, green: 0x80 / 255, blue: 0x06 / 255)
-  static let pink     = Color(red: 0xFD / 255, green: 0x15 / 255, blue: 0x68 / 255)
-  static let mauve    = Color(red: 0x9B / 255, green: 0x2C / 255, blue: 0x56 / 255)
-  static let sage     = Color(red: 0x4D / 255, green: 0x8E / 255, blue: 0x79 / 255)
-  static let mint     = Color(red: 0x00 / 255, green: 0xE8 / 255, blue: 0x9E / 255)
-  static let blue     = Color(red: 0x04 / 255, green: 0x60 / 255, blue: 0xD9 / 255)
+  /// Voixe brand purple — `#7701e5`. Aliased to `pink` for backward compat
+  /// with view code that already references `EnginecyPalette.pink` (warm hue
+  /// at the start of the gradient).
+  static let pink     = Color(red: 0x77 / 255, green: 0x01 / 255, blue: 0xE5 / 255)
+
+  /// Voixe brand blue — `#0f76ef` (cool hue at the end of the gradient).
+  static let blue     = Color(red: 0x0F / 255, green: 0x76 / 255, blue: 0xEF / 255)
+
+  /// Mid-point between purple and blue, useful as a third stop for the
+  /// `refining` indicator state where we want something distinguishable from
+  /// pure recording (purple) or pure transcribing (blue).
+  static let mauve    = Color(red: 0x43 / 255, green: 0x3B / 255, blue: 0xEA / 255)
+
+  /// Success green — used for "Granted" badges and the copy-confirmation
+  /// checkmark. Kept outside the brand gradient deliberately.
+  static let mint     = Color(red: 0x2A / 255, green: 0xD7 / 255, blue: 0x9F / 255)
+
+  // Aliases retained from the previous Enginecy spectrum so any straggler
+  // call sites compile. Map them onto the closest two-color stop.
+  static let orange   = pink
+  static let sage     = blue
 
   // MARK: - Surfaces
 
@@ -27,24 +43,25 @@ enum EnginecyPalette {
 
   // MARK: - Gradients
 
-  /// Full brand spectrum, top-leading to bottom-trailing. Use sparingly for accents.
+  /// Full brand band, top-leading to bottom-trailing.
   static let spectrum = LinearGradient(
-    colors: [orange, pink, mauve, sage, mint, blue],
+    colors: [pink, mauve, blue],
     startPoint: .topLeading,
     endPoint: .bottomTrailing
   )
 
-  /// Compact accent for buttons / progress fills (Enginecy's hero pink → blue arc).
+  /// Hero CTA gradient — purple → blue.
   static let accent = LinearGradient(
-    colors: [pink, mauve, blue],
+    colors: [pink, blue],
     startPoint: .leading,
     endPoint: .trailing
   )
 
-  /// Conic version, used for the orb's rotating rings.
+  /// Angular variant for the orb's rotating rings. Loops the two stops twice
+  /// so the rotation feels continuous instead of seam-y.
   static func ring(angle: Angle = .zero) -> AngularGradient {
     AngularGradient(
-      colors: [orange, pink, mauve, sage, mint, blue, orange],
+      colors: [pink, blue, pink, blue, pink],
       center: .center,
       angle: angle
     )
@@ -53,7 +70,7 @@ enum EnginecyPalette {
 
 // MARK: - Reusable styles
 
-/// Primary CTA — pink → blue capsule with a soft pink shadow halo.
+/// Primary CTA — purple → blue capsule with a soft purple glow.
 struct BrandPillButtonStyle: ButtonStyle {
   var size: Size = .regular
 
@@ -91,7 +108,7 @@ struct BrandSecondaryButtonStyle: ButtonStyle {
 }
 
 extension View {
-  /// Brand card: rounded-16 dark surface with a subtle stroke.
+  /// Brand card: rounded surface with a subtle stroke.
   func brandCard(cornerRadius: CGFloat = 14) -> some View {
     self
       .background(RoundedRectangle(cornerRadius: cornerRadius).fill(EnginecyPalette.surface))

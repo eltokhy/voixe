@@ -47,10 +47,6 @@ struct AboutView: View {
             row(icon: "sparkles", title: "Made by Enginecy", trailing: AnyView(
               brandLink("Visit Enginecy", url: "https://enginecy.com")
             ))
-            divider
-            row(icon: "shippingbox", title: "Built on Hex by Kit Langton", trailing: AnyView(
-              brandLink("Original project", url: "https://github.com/kitlangton/Hex/")
-            ))
           }
 
           Spacer(minLength: 24)
@@ -68,7 +64,7 @@ struct AboutView: View {
 
   private var hero: some View {
     VStack(spacing: 14) {
-      Image("EnginecyMark")
+      Image("VoixeMark")
         .resizable()
         .scaledToFit()
         .frame(width: 96, height: 96)

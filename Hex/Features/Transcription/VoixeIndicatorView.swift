@@ -91,13 +91,19 @@ struct VoixeIndicatorView: View {
     }
   }
 
-  /// Scale on top of the base, gives the mark a gentle breath plus an audio
-  /// bump while recording so loud speech visibly grows the orb.
+  /// Scale on top of the base. Recording is now *dramatically* audio-reactive:
+  /// the orb pulses outward with each word and shrinks back to baseline during
+  /// silence. Avg power drives the body of the response, peak power adds a
+  /// per-syllable kick on top.
   private func reactiveScale(time t: Double) -> CGFloat {
     let breath = CGFloat(sin(t * 1.6)) * 0.025 + 1.0
     switch status {
     case .recording:
-      let amp = CGFloat(min(0.18, meter.averagePower * 0.6))
+      let avg = CGFloat(meter.averagePower)
+      let peak = CGFloat(meter.peakPower)
+      // Combined drive: avg up to +50% growth, peak adds another ~25% on
+      // transients. Total cap at +80% so the orb never blows up the layout.
+      let amp = min(0.80, avg * 1.6 + peak * 0.6)
       return breath + amp
     case .transcribing, .refining:
       return breath + 0.04
@@ -113,7 +119,9 @@ struct VoixeIndicatorView: View {
   var body: some View {
     TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: status == .hidden)) { context in
       let t = context.date.timeIntervalSinceReferenceDate
-      let canvasSize = size * 1.8
+      // Canvas reserves layout headroom for the orb's max audio-reactive
+      // scale (~1.8×) plus a little extra for the soft shadow/halo bleed.
+      let canvasSize = size * 2.2
       let scale = reactiveScale(time: t)
       // Wrap the rotation angle into 0...360. Without modulo, `t × rate × 360`
       // accumulates into the billions and SwiftUI's parent spring animation

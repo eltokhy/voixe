@@ -63,24 +63,26 @@ struct VoixeIndicatorView: View {
     }
   }
 
-  /// Glow colour that surrounds the orb.
+  /// Glow colour that surrounds the orb. Kept restrained — the rays carry the
+  /// brand colour, the halo is just a soft shadow of presence.
   private var glowColor: Color {
     switch status {
     case .hidden: return .clear
-    case .idle, .prewarming: return EnginecyPalette.pink.opacity(0.45)
-    case .recording: return EnginecyPalette.pink.opacity(0.7)
-    case .transcribing: return EnginecyPalette.blue.opacity(0.65)
-    case .refining: return EnginecyPalette.mauve.opacity(0.65)
+    case .idle, .prewarming: return EnginecyPalette.pink.opacity(0.18)
+    case .recording: return EnginecyPalette.pink.opacity(0.32)
+    case .transcribing: return EnginecyPalette.blue.opacity(0.28)
+    case .refining: return EnginecyPalette.mauve.opacity(0.28)
     }
   }
 
-  /// Glow radius — recording reacts to peak power for a "spike on speech" effect.
+  /// Glow blur radius — recording still reacts to peak power for a "spike on
+  /// speech" cue, but the multiplier is dialed down so the halo never bloats.
   private var glowRadius: CGFloat {
     switch status {
     case .hidden: return 0
-    case .idle, .prewarming: return 10
-    case .recording: return 12 + CGFloat(meter.peakPower * 30)
-    case .transcribing, .refining: return 18
+    case .idle, .prewarming: return 6
+    case .recording: return 8 + CGFloat(meter.peakPower * 12)
+    case .transcribing, .refining: return 10
     }
   }
 
@@ -109,11 +111,13 @@ struct VoixeIndicatorView: View {
       let canvasSize = size * 1.8 // give the glow + ray extension breathing room
 
       ZStack {
-        // Ambient halo
+        // Ambient halo — tighter footprint than the canvas (1.05× the orb itself,
+        // not the full ray-extension area) so the glow hugs the orb instead of
+        // bleeding into surrounding UI.
         Circle()
           .fill(glowColor)
-          .blur(radius: max(8, glowRadius))
-          .frame(width: canvasSize, height: canvasSize)
+          .blur(radius: max(6, glowRadius))
+          .frame(width: size * 1.05, height: size * 1.05)
           .opacity(status == .hidden ? 0 : 1)
 
         // Procedural ray field

@@ -55,13 +55,15 @@ struct VoixeIndicatorView: View {
 
   /// Logo rotation rate (turns / second). Idle is slow but never zero so the
   /// mark feels alive. Recording accelerates so "talking" is visibly faster.
+  /// Transcribing/refining are slower than recording — the work is internal,
+  /// the orb shouldn't whirl.
   private var rotationRate: Double {
     switch status {
     case .hidden: return 0
     case .idle, .prewarming: return 0.04   // ~25s per revolution
-    case .recording: return 0.20           // ~5s per revolution — clearly faster
-    case .transcribing: return 0.30        // fastest, "thinking" energy
-    case .refining: return 0.12
+    case .recording: return 0.18           // ~5.5s per revolution
+    case .transcribing: return 0.10        // ~10s per revolution — calm "thinking"
+    case .refining: return 0.08            // ~12s per revolution
     }
   }
 
@@ -78,13 +80,14 @@ struct VoixeIndicatorView: View {
   }
 
   /// Halo blur radius. Recording reacts to peak power for a "spike on speech"
-  /// cue — restrained multiplier so the halo never bloats out the layout.
+  /// cue. Lowered overall so the aura hugs the orb instead of bleeding into
+  /// surrounding UI.
   private var glowRadius: CGFloat {
     switch status {
     case .hidden: return 0
-    case .idle, .prewarming: return 14
-    case .recording: return 16 + CGFloat(meter.peakPower * 16)
-    case .transcribing, .refining: return 18
+    case .idle, .prewarming: return 7
+    case .recording: return 9 + CGFloat(meter.peakPower * 8)
+    case .transcribing, .refining: return 10
     }
   }
 
@@ -118,11 +121,12 @@ struct VoixeIndicatorView: View {
       let rotation = Angle.degrees(t * rotationRate * 360)
 
       ZStack {
-        // Faded halo
+        // Faded halo — frame hugs the orb tightly (1.15× the logo) so the
+        // glow stops at the rim instead of spreading into surrounding UI.
         Circle()
           .fill(glowColor)
-          .blur(radius: max(8, glowRadius))
-          .frame(width: size * 1.45, height: size * 1.45)
+          .blur(radius: max(5, glowRadius))
+          .frame(width: size * 1.15, height: size * 1.15)
           .opacity(status == .hidden ? 0 : 1)
 
         // The Voixe logo, rotating + scaling.

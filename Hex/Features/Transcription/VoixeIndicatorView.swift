@@ -2,25 +2,24 @@
 //  VoixeIndicatorView.swift
 //  Voixe
 //
-//  Procedural voice orb. The Voixe rays are drawn directly in SwiftUI Canvas
-//  on a per-frame TimelineView so each ray can:
-//    - rotate continuously around the centre,
-//    - breathe in/out on its own phase offset (organic motion, not strobe),
-//    - extend audio-reactively when recording (peak power → ray length),
-//    - colour-shift along the brand purple→blue gradient as the angle sweeps.
+//  Soft-edged rounded triangle as the voice presence mark, inspired by the
+//  ai-elements Persona "obsidian" variant. Replaces the procedural ray field
+//  with an organic shape that:
+//    - has rounded corners (no sharp triangle points),
+//    - is filled with the Voixe purple→blue gradient that slowly rotates,
+//    - sits behind a soft pink/blue halo that fades into the canvas,
+//    - has an inner top-left highlight giving it a glassy 3D feel,
+//    - audio-reacts via scale (breathes wider when speaking) and rotation rate.
 //
-//  States:
-//    .hidden      → fully invisible
-//    .idle        → soft slow breathing (purple glow)
-//    .recording   → rays extend with the live audio meter (purple glow)
-//    .prewarming  → similar to idle but sligtly faster
-//    .transcribing→ faster rotation, energetic motion (blue glow)
-//    .refining    → mid-state, longer rays, mauve glow
+//  States (.hidden / .idle / .recording / .transcribing / .prewarming / .refining)
+//  drive: gradient stops, glow colour, rotation rate, scale baseline.
 //
 
 import Inject
 import SwiftUI
 import VoixeCore
+
+// MARK: - Indicator view
 
 struct VoixeIndicatorView: View {
   @ObserveInjection var inject
@@ -39,14 +38,10 @@ struct VoixeIndicatorView: View {
 
   // MARK: - Layout
 
-  // Sized for the menu-bar / overlay recording indicator (small, unobtrusive).
-  // For hero usage (Onboarding welcome / Refine intro) the call site applies a
-  // .scaleEffect(...) multiplier — see OnboardingView.swift.
-  //
-  // `size` is the inner ring diameter. Rays extend dramatically OUTSIDE this ring
-  // (up to ~2× the diameter when speaking loudly), so the canvas needs headroom.
-  private let baseSize: CGFloat = 24
-  private let activeSize: CGFloat = 30
+  /// Inner triangle diameter (longest dimension). Onboarding hero call sites
+  /// apply a `.scaleEffect(...)` multiplier on top.
+  private let baseSize: CGFloat = 26
+  private let activeSize: CGFloat = 32
 
   private var size: CGFloat {
     switch status {
@@ -58,180 +53,159 @@ struct VoixeIndicatorView: View {
 
   // MARK: - Per-state behaviour
 
-  /// Rotation rate in turns per second (full revolutions / second).
+  /// Gradient angle rotation rate (turns / second).
   private var rotationRate: Double {
     switch status {
     case .hidden: return 0
-    case .idle, .prewarming: return 0.04
-    case .recording: return 0.12
-    case .transcribing: return 0.18
+    case .idle, .prewarming: return 0.06
+    case .recording: return 0.18
+    case .transcribing: return 0.24
     case .refining: return 0.10
     }
   }
 
-  /// Glow colour that surrounds the orb. Kept restrained — the rays carry the
-  /// brand colour, the halo is just a soft shadow of presence.
+  /// Brand-tinted halo behind the triangle. Subtle by design — the triangle
+  /// itself carries the colour, the halo just adds presence.
   private var glowColor: Color {
     switch status {
     case .hidden: return .clear
-    case .idle, .prewarming: return EnginecyPalette.pink.opacity(0.18)
-    case .recording: return EnginecyPalette.pink.opacity(0.32)
-    case .transcribing: return EnginecyPalette.blue.opacity(0.28)
-    case .refining: return EnginecyPalette.mauve.opacity(0.28)
+    case .idle, .prewarming: return EnginecyPalette.pink.opacity(0.30)
+    case .recording: return EnginecyPalette.pink.opacity(0.50)
+    case .transcribing: return EnginecyPalette.blue.opacity(0.45)
+    case .refining: return EnginecyPalette.mauve.opacity(0.45)
     }
   }
 
-  /// Glow blur radius — recording still reacts to peak power for a "spike on
-  /// speech" cue, but the multiplier is dialed down so the halo never bloats.
+  /// Halo blur radius. Recording reacts to peak power for a "spike on speech"
+  /// cue — never blows out though, multiplier is restrained.
   private var glowRadius: CGFloat {
     switch status {
     case .hidden: return 0
-    case .idle, .prewarming: return 6
-    case .recording: return 8 + CGFloat(meter.peakPower * 12)
-    case .transcribing, .refining: return 10
+    case .idle, .prewarming: return 14
+    case .recording: return 16 + CGFloat(meter.peakPower * 18)
+    case .transcribing, .refining: return 18
     }
   }
 
-  /// Audio amplitude that drives ray length. Recording uses BOTH the average
-  /// (smoother body) and the peak (transient flicker) so loud speech produces
-  /// dramatic ray extension. Other states use a synthetic gentle wave so the
-  /// orb still feels alive.
-  private var amplitude: CGFloat {
+  /// Audio-reactive scale on top of the base. Recording breathes with the
+  /// average power; other states get a gentle synthetic breath.
+  private func reactiveScale(time t: Double) -> CGFloat {
+    let breath = CGFloat(sin(t * 2.0)) * 0.025 + 1.0 // ±2.5% slow breath
     switch status {
     case .recording:
-      let avg = CGFloat(meter.averagePower)
-      let peak = CGFloat(meter.peakPower)
-      // Combined drive, biased toward peak so each spoken syllable visibly
-      // pushes rays outward. Scaled up to 2.4× so quiet voice still produces
-      // a clear visual change.
-      return min(1.0, (avg * 1.4 + peak * 1.0) * 1.2)
-    case .refining, .transcribing:
-      return 0.4
+      let amp = CGFloat(min(0.18, meter.averagePower * 0.6))
+      return breath + amp
+    case .transcribing, .refining:
+      return breath + 0.04
     case .idle, .prewarming:
-      return 0.20
+      return breath
     case .hidden:
-      return 0
+      return 0.6
     }
   }
-
-  // Fewer rays = thicker gaps between each "pillar" so the burst reads as
-  // distinct radial lines instead of a smooth disk at small render sizes.
-  private let rayCount: Int = 36
 
   // MARK: - Body
 
   var body: some View {
     TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: status == .hidden)) { context in
-      let elapsed = context.date.timeIntervalSinceReferenceDate
-      // Canvas is 2.4× the inner ring so rays have room to extend dramatically
-      // outward when speaking. Without this headroom audio reactivity is invisible.
-      let canvasSize = size * 2.4
+      let t = context.date.timeIntervalSinceReferenceDate
+      let canvasSize = size * 2.0 // room for the halo
+      let triSize = size * 1.05
+      let scale = reactiveScale(time: t)
+      let gradientAngle = Angle.radians(t * rotationRate * .pi * 2)
 
       ZStack {
-        // Ambient halo — tighter footprint than the canvas (1.05× the orb itself,
-        // not the full ray-extension area) so the glow hugs the orb instead of
-        // bleeding into surrounding UI.
-        Circle()
+        // Faded outer halo
+        SoftTriangle(cornerRadius: 0.45)
           .fill(glowColor)
-          .blur(radius: max(6, glowRadius))
-          .frame(width: size * 1.05, height: size * 1.05)
+          .blur(radius: max(8, glowRadius))
+          .frame(width: triSize * 1.4, height: triSize * 1.4)
           .opacity(status == .hidden ? 0 : 1)
 
-        // Procedural ray field
-        Canvas { ctx, drawSize in
-          drawRays(into: ctx, size: drawSize, time: elapsed)
-        }
-        .frame(width: canvasSize, height: canvasSize)
-        .blendMode(.plusLighter) // additive — rays brighten the halo where they cross it
+        // Main triangle with rotating brand gradient
+        SoftTriangle(cornerRadius: 0.45)
+          .fill(
+            AngularGradient(
+              colors: [
+                EnginecyPalette.pink,
+                EnginecyPalette.mauve,
+                EnginecyPalette.blue,
+                EnginecyPalette.mauve,
+                EnginecyPalette.pink,
+              ],
+              center: .center,
+              angle: gradientAngle
+            )
+          )
+          .frame(width: triSize, height: triSize)
+          .scaleEffect(scale)
+          .shadow(color: glowColor.opacity(0.6), radius: 6, y: 2)
+
+        // Glassy inner highlight — soft white at top-left fading to clear.
+        SoftTriangle(cornerRadius: 0.45)
+          .fill(
+            RadialGradient(
+              colors: [Color.white.opacity(0.35), Color.clear],
+              center: UnitPoint(x: 0.32, y: 0.22),
+              startRadius: 0,
+              endRadius: triSize * 0.65
+            )
+          )
+          .frame(width: triSize, height: triSize)
+          .scaleEffect(scale)
+          .blendMode(.plusLighter)
+          .allowsHitTesting(false)
       }
       .frame(width: canvasSize, height: canvasSize)
       .opacity(status == .hidden ? 0 : 1)
-      .scaleEffect(status == .hidden ? 0.6 : 1)
-      .animation(.spring(response: 0.45, dampingFraction: 0.7), value: status)
+      .scaleEffect(status == .hidden ? 0.7 : 1)
+      .animation(.spring(response: 0.4, dampingFraction: 0.75), value: status)
     }
     .enableInjection()
   }
+}
 
-  // MARK: - Drawing
+// MARK: - Shape
 
-  private func drawRays(into ctx: GraphicsContext, size canvasSize: CGSize, time t: Double) {
-    let centre = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-    let radius = min(canvasSize.width, canvasSize.height) * 0.5
+/// An equilateral triangle with deeply rounded corners. Drawn via three
+/// `addArc(tangent1End:tangent2End:radius:)` calls — each corner is a circular
+/// arc tangent to the two edges meeting there. cornerRadius is a fraction of
+/// the triangle's circumradius (0 = sharp, ~0.5 = blob).
+struct SoftTriangle: Shape {
+  /// 0...1 — fraction of circumradius used for the corner arc radius.
+  var cornerRadius: CGFloat = 0.4
 
-    // Ring geometry — kept compact with a wide ray-extension range so audio
-    // amplitude has somewhere to push the pillars OUTWARD.
-    let innerR = radius * 0.20      // tight inner hole
-    let baseOuterR = radius * 0.34  // ray base — short by default
-    let maxExtension = radius * 0.62 // up to ~3× the inner radius when speaking
+  func path(in rect: CGRect) -> Path {
+    let r = min(rect.width, rect.height) / 2
+    let cx = rect.midX
+    let cy = rect.midY
 
-    let baseAngle = t * rotationRate * .pi * 2
+    // Pointing-up equilateral triangle: top, bottom-right, bottom-left.
+    let p1 = CGPoint(x: cx, y: cy - r)
+    let p2 = CGPoint(x: cx + r * 0.866, y: cy + r * 0.5)
+    let p3 = CGPoint(x: cx - r * 0.866, y: cy + r * 0.5)
 
-    // Stroke thickness scales with size so pillars remain visible at small
-    // sizes without becoming chunky on hero scales.
-    let lineWidth: CGFloat = max(2.0, radius * 0.06)
+    let cornerR = r * cornerRadius
 
-    for i in 0..<rayCount {
-      let normalized = Double(i) / Double(rayCount)
-      let angle = baseAngle + normalized * .pi * 2
-
-      // Per-ray phase offset → independent breathing, not a synchronised strobe.
-      let phase = normalized * .pi * 2 * 2 // 2 wave cycles around the ring
-      let wave = (sin(t * 2.0 + phase) + 1) / 2 // 0...1, faster than before
-
-      // Length factor combines a slow ambient wave (15% range) with audio
-      // amplitude (80% range). When speaking, audio absolutely dominates the
-      // ray length; when silent, only the gentle wave keeps the orb breathing.
-      let lengthFactor = 0.20 + wave * 0.15 + Double(amplitude) * 0.8
-      let outerR = baseOuterR + maxExtension * CGFloat(min(1.2, lengthFactor))
-
-      let inner = CGPoint(
-        x: centre.x + CGFloat(cos(angle)) * innerR,
-        y: centre.y + CGFloat(sin(angle)) * innerR
-      )
-      let outer = CGPoint(
-        x: centre.x + CGFloat(cos(angle)) * outerR,
-        y: centre.y + CGFloat(sin(angle)) * outerR
-      )
-
-      // Colour position along the purple→blue gradient.
-      // Use the ray's vertical component so the gradient feels like a top-to-bottom
-      // wash that rotates with the ring.
-      let colourPosition = (sin(angle - .pi / 2) + 1) / 2 // 0 (top) → 1 (bottom)
-      let rayColor = mixColor(EnginecyPalette.pink, EnginecyPalette.blue, t: colourPosition)
-
-      // Opacity tracks ray extension so longer rays appear brighter — visually
-      // reinforces the audio-reactive growth.
-      let opacity = 0.65 + min(0.35, Double(amplitude) * 0.4 + wave * 0.15)
-
-      var path = Path()
-      path.move(to: inner)
-      path.addLine(to: outer)
-      ctx.stroke(
-        path,
-        with: .color(rayColor.opacity(opacity)),
-        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-      )
-    }
-  }
-
-  /// Linearly interpolate two SwiftUI Colors in sRGB space.
-  private func mixColor(_ a: Color, _ b: Color, t: Double) -> Color {
-    let aN = NSColor(a).usingColorSpace(.deviceRGB) ?? .black
-    let bN = NSColor(b).usingColorSpace(.deviceRGB) ?? .black
-    let clamped = max(0, min(1, t))
-    let r = aN.redComponent + (bN.redComponent - aN.redComponent) * clamped
-    let g = aN.greenComponent + (bN.greenComponent - aN.greenComponent) * clamped
-    let bl = aN.blueComponent + (bN.blueComponent - aN.blueComponent) * clamped
-    return Color(red: Double(r), green: Double(g), blue: Double(bl))
+    var path = Path()
+    // Start at the midpoint of the left edge so the first arc has somewhere
+    // to start tangent to.
+    let startEdge = CGPoint(x: (p3.x + p1.x) / 2, y: (p3.y + p1.y) / 2)
+    path.move(to: startEdge)
+    path.addArc(tangent1End: p1, tangent2End: p2, radius: cornerR)
+    path.addArc(tangent1End: p2, tangent2End: p3, radius: cornerR)
+    path.addArc(tangent1End: p3, tangent2End: p1, radius: cornerR)
+    path.closeSubpath()
+    return path
   }
 }
 
-#Preview("Voixe Orb states") {
+#Preview("Voixe Triangle states") {
   VStack(spacing: 36) {
     HStack(spacing: 36) {
       Group {
         VoixeIndicatorView(status: .idle, meter: .init(averagePower: 0, peakPower: 0))
-        VoixeIndicatorView(status: .recording, meter: .init(averagePower: 0.5, peakPower: 0.7))
+        VoixeIndicatorView(status: .recording, meter: .init(averagePower: 0.4, peakPower: 0.6))
         VoixeIndicatorView(status: .transcribing, meter: .init(averagePower: 0, peakPower: 0))
         VoixeIndicatorView(status: .refining, meter: .init(averagePower: 0, peakPower: 0))
       }

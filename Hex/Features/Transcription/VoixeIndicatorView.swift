@@ -2,24 +2,24 @@
 //  VoixeIndicatorView.swift
 //  Voixe
 //
-//  Soft-edged rounded triangle as the voice presence mark, inspired by the
-//  ai-elements Persona "obsidian" variant. Replaces the procedural ray field
-//  with an organic shape that:
-//    - has rounded corners (no sharp triangle points),
-//    - is filled with the Voixe purple→blue gradient that slowly rotates,
-//    - sits behind a soft pink/blue halo that fades into the canvas,
-//    - has an inner top-left highlight giving it a glassy 3D feel,
-//    - audio-reacts via scale (breathes wider when speaking) and rotation rate.
+//  Voice presence mark — the Voixe brand logo, slowly rotating, faster when
+//  the user is talking. Sits behind a soft brand-tinted halo that fades into
+//  the dark canvas.
 //
-//  States (.hidden / .idle / .recording / .transcribing / .prewarming / .refining)
-//  drive: gradient stops, glow colour, rotation rate, scale baseline.
+//  Composition (back to front):
+//    1. Faded outer halo — same circular footprint as the logo, blurred and
+//       state-tinted (pink/blue/mauve depending on status).
+//    2. The Voixe logo (`VoixeMark` asset) — `Image` resource, rotated each
+//       frame and audio-reactive on scale.
+//
+//  Sizes are tuned for the menu-bar / overlay recording indicator. For hero
+//  usage (Onboarding welcome, Refine intro) the call site multiplies via
+//  `.scaleEffect(...)` — see OnboardingView.swift.
 //
 
 import Inject
 import SwiftUI
 import VoixeCore
-
-// MARK: - Indicator view
 
 struct VoixeIndicatorView: View {
   @ObserveInjection var inject
@@ -38,10 +38,10 @@ struct VoixeIndicatorView: View {
 
   // MARK: - Layout
 
-  /// Inner triangle diameter (longest dimension). Onboarding hero call sites
-  /// apply a `.scaleEffect(...)` multiplier on top.
-  private let baseSize: CGFloat = 26
-  private let activeSize: CGFloat = 32
+  /// Inner logo diameter. Bumped up vs. the previous orb so the brand mark
+  /// reads at a glance instead of feeling like a tiny ornament.
+  private let baseSize: CGFloat = 34
+  private let activeSize: CGFloat = 42
 
   private var size: CGFloat {
     switch status {
@@ -53,44 +53,45 @@ struct VoixeIndicatorView: View {
 
   // MARK: - Per-state behaviour
 
-  /// Gradient angle rotation rate (turns / second).
+  /// Logo rotation rate (turns / second). Idle is slow but never zero so the
+  /// mark feels alive. Recording accelerates so "talking" is visibly faster.
   private var rotationRate: Double {
     switch status {
     case .hidden: return 0
-    case .idle, .prewarming: return 0.06
-    case .recording: return 0.18
-    case .transcribing: return 0.24
-    case .refining: return 0.10
+    case .idle, .prewarming: return 0.04   // ~25s per revolution
+    case .recording: return 0.20           // ~5s per revolution — clearly faster
+    case .transcribing: return 0.30        // fastest, "thinking" energy
+    case .refining: return 0.12
     }
   }
 
-  /// Brand-tinted halo behind the triangle. Subtle by design — the triangle
-  /// itself carries the colour, the halo just adds presence.
+  /// Brand-tinted halo behind the mark. Subtle by design — the logo carries
+  /// the colour, the halo just adds presence against the dark canvas.
   private var glowColor: Color {
     switch status {
     case .hidden: return .clear
     case .idle, .prewarming: return EnginecyPalette.pink.opacity(0.30)
-    case .recording: return EnginecyPalette.pink.opacity(0.50)
-    case .transcribing: return EnginecyPalette.blue.opacity(0.45)
+    case .recording: return EnginecyPalette.pink.opacity(0.55)
+    case .transcribing: return EnginecyPalette.blue.opacity(0.50)
     case .refining: return EnginecyPalette.mauve.opacity(0.45)
     }
   }
 
   /// Halo blur radius. Recording reacts to peak power for a "spike on speech"
-  /// cue — never blows out though, multiplier is restrained.
+  /// cue — restrained multiplier so the halo never bloats out the layout.
   private var glowRadius: CGFloat {
     switch status {
     case .hidden: return 0
     case .idle, .prewarming: return 14
-    case .recording: return 16 + CGFloat(meter.peakPower * 18)
+    case .recording: return 16 + CGFloat(meter.peakPower * 16)
     case .transcribing, .refining: return 18
     }
   }
 
-  /// Audio-reactive scale on top of the base. Recording breathes with the
-  /// average power; other states get a gentle synthetic breath.
+  /// Scale on top of the base, gives the mark a gentle breath plus an audio
+  /// bump while recording so loud speech visibly grows the orb.
   private func reactiveScale(time t: Double) -> CGFloat {
-    let breath = CGFloat(sin(t * 2.0)) * 0.025 + 1.0 // ±2.5% slow breath
+    let breath = CGFloat(sin(t * 1.6)) * 0.025 + 1.0
     switch status {
     case .recording:
       let amp = CGFloat(min(0.18, meter.averagePower * 0.6))
@@ -100,7 +101,7 @@ struct VoixeIndicatorView: View {
     case .idle, .prewarming:
       return breath
     case .hidden:
-      return 0.6
+      return 0.7
     }
   }
 
@@ -109,98 +110,41 @@ struct VoixeIndicatorView: View {
   var body: some View {
     TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: status == .hidden)) { context in
       let t = context.date.timeIntervalSinceReferenceDate
-      let canvasSize = size * 2.0 // room for the halo
-      let triSize = size * 1.05
+      let canvasSize = size * 1.8
       let scale = reactiveScale(time: t)
-      let gradientAngle = Angle.radians(t * rotationRate * .pi * 2)
+      // State-constant rotation rate keeps angle accumulation simple — a small
+      // visual "warp" is hidden under the spring transitions when the user
+      // changes status.
+      let rotation = Angle.degrees(t * rotationRate * 360)
 
       ZStack {
-        // Faded outer halo
-        SoftTriangle(cornerRadius: 0.45)
+        // Faded halo
+        Circle()
           .fill(glowColor)
           .blur(radius: max(8, glowRadius))
-          .frame(width: triSize * 1.4, height: triSize * 1.4)
+          .frame(width: size * 1.45, height: size * 1.45)
           .opacity(status == .hidden ? 0 : 1)
 
-        // Main triangle with rotating brand gradient
-        SoftTriangle(cornerRadius: 0.45)
-          .fill(
-            AngularGradient(
-              colors: [
-                EnginecyPalette.pink,
-                EnginecyPalette.mauve,
-                EnginecyPalette.blue,
-                EnginecyPalette.mauve,
-                EnginecyPalette.pink,
-              ],
-              center: .center,
-              angle: gradientAngle
-            )
-          )
-          .frame(width: triSize, height: triSize)
+        // The Voixe logo, rotating + scaling.
+        Image("VoixeMark")
+          .resizable()
+          .interpolation(.high)
+          .scaledToFit()
+          .frame(width: size, height: size)
+          .rotationEffect(rotation)
           .scaleEffect(scale)
-          .shadow(color: glowColor.opacity(0.6), radius: 6, y: 2)
-
-        // Glassy inner highlight — soft white at top-left fading to clear.
-        SoftTriangle(cornerRadius: 0.45)
-          .fill(
-            RadialGradient(
-              colors: [Color.white.opacity(0.35), Color.clear],
-              center: UnitPoint(x: 0.32, y: 0.22),
-              startRadius: 0,
-              endRadius: triSize * 0.65
-            )
-          )
-          .frame(width: triSize, height: triSize)
-          .scaleEffect(scale)
-          .blendMode(.plusLighter)
-          .allowsHitTesting(false)
+          .shadow(color: glowColor.opacity(0.7), radius: 6, y: 2)
       }
       .frame(width: canvasSize, height: canvasSize)
       .opacity(status == .hidden ? 0 : 1)
       .scaleEffect(status == .hidden ? 0.7 : 1)
-      .animation(.spring(response: 0.4, dampingFraction: 0.75), value: status)
+      .animation(.spring(response: 0.45, dampingFraction: 0.75), value: status)
     }
     .enableInjection()
   }
 }
 
-// MARK: - Shape
-
-/// An equilateral triangle with deeply rounded corners. Drawn via three
-/// `addArc(tangent1End:tangent2End:radius:)` calls — each corner is a circular
-/// arc tangent to the two edges meeting there. cornerRadius is a fraction of
-/// the triangle's circumradius (0 = sharp, ~0.5 = blob).
-struct SoftTriangle: Shape {
-  /// 0...1 — fraction of circumradius used for the corner arc radius.
-  var cornerRadius: CGFloat = 0.4
-
-  func path(in rect: CGRect) -> Path {
-    let r = min(rect.width, rect.height) / 2
-    let cx = rect.midX
-    let cy = rect.midY
-
-    // Pointing-up equilateral triangle: top, bottom-right, bottom-left.
-    let p1 = CGPoint(x: cx, y: cy - r)
-    let p2 = CGPoint(x: cx + r * 0.866, y: cy + r * 0.5)
-    let p3 = CGPoint(x: cx - r * 0.866, y: cy + r * 0.5)
-
-    let cornerR = r * cornerRadius
-
-    var path = Path()
-    // Start at the midpoint of the left edge so the first arc has somewhere
-    // to start tangent to.
-    let startEdge = CGPoint(x: (p3.x + p1.x) / 2, y: (p3.y + p1.y) / 2)
-    path.move(to: startEdge)
-    path.addArc(tangent1End: p1, tangent2End: p2, radius: cornerR)
-    path.addArc(tangent1End: p2, tangent2End: p3, radius: cornerR)
-    path.addArc(tangent1End: p3, tangent2End: p1, radius: cornerR)
-    path.closeSubpath()
-    return path
-  }
-}
-
-#Preview("Voixe Triangle states") {
+#Preview("Voixe Logo states") {
   VStack(spacing: 36) {
     HStack(spacing: 36) {
       Group {
